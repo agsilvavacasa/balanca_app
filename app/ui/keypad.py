@@ -18,6 +18,8 @@ class CpfInput(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         lay = QVBoxLayout(self)
         lay.setSpacing(14)
+        lay.setContentsMargins(0, 0, 0, 10)
+        self.setMinimumHeight(500)
         self.display = QLabel()
         self.display.setObjectName("cpfDisplay")
         self.display.setAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -82,7 +82,10 @@ QComboBox, QSpinBox {{ background: {C["card2"]}; border: 2px solid {C["border"]}
 QComboBox:focus, QSpinBox:focus {{ border-color: {C["accent"]}; }}
 QComboBox QAbstractItemView {{ background: {C["card2"]}; border: 1px solid {C["border"]};
     selection-background-color: #23415C; }}
-QCheckBox {{ font-size: 14px; spacing: 8px; }}
+QCheckBox, QRadioButton {{ font-size: 14px; spacing: 8px; }}
+QPlainTextEdit {{ background: {C["card2"]}; border: 2px solid {C["border"]}; border-radius: 10px;
+    padding: 8px 10px; font-size: 13px; selection-background-color: {C["accent"]}; }}
+QPlainTextEdit:focus {{ border-color: {C["accent"]}; }}
 QGroupBox {{ border: 1px dashed {C["border"]}; border-radius: 12px; margin-top: 14px; padding: 14px 12px 10px 12px;
     font-weight: 700; color: {C["muted"]}; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 14px; padding: 0 6px; color: {C["warn"]}; }}

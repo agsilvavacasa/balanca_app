@@ -91,7 +91,6 @@ def test_full_customer_journey(kiosk):
     type_cpf(kiosk, CPF)
     kiosk.cpf_ok.click()
     code = kiosk.new_code.text()
-    kiosk.ok_btn = None
     kiosk._finish_session()
 
     # cliente se serve e volta ao autoatendimento: lê a comanda no leitor
@@ -121,7 +120,7 @@ def test_full_customer_journey(kiosk):
     assert kiosk.review_total.text() == "R$ 71,95"         # 39,95 + 8,00 + 2 x 12,00
     assert kiosk.review_table.rowCount() == 3
 
-    kiosk.stack.widget(kw.REVIEW).findChildren(type(kiosk.register_btn))[-1].click()   # CONCLUIR
+    kiosk.review_done.click()
     assert kiosk.stack.currentIndex() == kw.ENDDONE and kiosk.end_code.text() == code
     info = services.commands.find(code)
     assert info.status == "OPEN"                           # ainda não paga: paga na saída

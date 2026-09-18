@@ -1,6 +1,7 @@
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from ..database.connection import Database
 from ..database.models import Operator
@@ -31,16 +32,22 @@ class AuthService:
     def self_service_operator(self) -> OperatorInfo:
         """Operador técnico que assina os lançamentos feitos pelo cliente.
 
-        Fica inativo: não aparece na tela de login e não autentica com PIN nenhum."""
-        with self._db.session() as s:
-            op = s.scalar(select(Operator).where(Operator.name == SELF_SERVICE_NAME))
-            if op is None:
-                salt, digest = hash_pin(os.urandom(16).hex())
-                op = Operator(name=SELF_SERVICE_NAME, pin_salt=salt, pin_hash=digest,
-                              is_admin=False, active=False)
-                s.add(op)
-                s.flush()
-            return OperatorInfo(op.id, op.name, False)
+        Fica inativo: não aparece na tela de login e não autentica com PIN nenhum. A criação é
+        segura contra corrida: dois terminais podem pedi-lo ao mesmo tempo num banco novo."""
+        for _ in range(3):
+            try:
+                with self._db.session() as s:
+                    op = s.scalar(select(Operator).where(Operator.name == SELF_SERVICE_NAME))
+                    if op is None:
+                        salt, digest = hash_pin(os.urandom(16).hex())
+                        op = Operator(name=SELF_SERVICE_NAME, pin_salt=salt, pin_hash=digest,
+                                      is_admin=False, active=False)
+                        s.add(op)
+                        s.flush()
+                    return OperatorInfo(op.id, op.name, False)
+            except IntegrityError:          # outro terminal criou primeiro: lê o que ele criou
+                continue
+        raise RuntimeError("Não foi possível obter o operador do autoatendimento.")
 
     def authenticate_admin(self, pin: str) -> Optional[OperatorInfo]:
         """Autorização de gerente (RF019): qualquer administrador ativo com esse PIN."""

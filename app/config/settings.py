@@ -61,6 +61,22 @@ class PrintSettings:
 
 
 @dataclass
+class ConnectionSettings:
+    """Onde estão os dados deste PC: "" (ainda não escolhido), "local" ou "remote" (outro PC)."""
+    mode: str = ""
+    host: str = ""                       # IP do PC servidor
+    port: int = 8765
+    access_key: str = ""                 # código de pareamento mostrado no servidor
+
+
+@dataclass
+class ServerSettings:
+    port: int = 8765
+    access_key: str = ""                 # gerado no primeiro uso do servidor
+    name: str = "Servidor"
+
+
+@dataclass
 class AppSettings:
     database_url: Optional[str] = None
     role: str = ""                       # "autoatendimento" | "operador" | "caixa" ("" = perguntar)
@@ -68,6 +84,8 @@ class AppSettings:
     kiosk: KioskSettings = field(default_factory=KioskSettings)
     checkout: CheckoutSettings = field(default_factory=CheckoutSettings)
     printing: PrintSettings = field(default_factory=PrintSettings)
+    connection: ConnectionSettings = field(default_factory=ConnectionSettings)
+    server: ServerSettings = field(default_factory=ServerSettings)
 
     @property
     def effective_database_url(self) -> str:
@@ -95,7 +113,9 @@ def load_settings() -> AppSettings:
     return AppSettings(database_url=raw.get("database_url"), role=raw.get("role", ""),
                        scale=section(ScaleSettings, "scale"), kiosk=section(KioskSettings, "kiosk"),
                        checkout=section(CheckoutSettings, "checkout"),
-                       printing=section(PrintSettings, "printing"))
+                       printing=section(PrintSettings, "printing"),
+                       connection=section(ConnectionSettings, "connection"),
+                       server=section(ServerSettings, "server"))
 
 
 def save_settings(settings: AppSettings) -> None:

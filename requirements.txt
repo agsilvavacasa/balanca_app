@@ -2,3 +2,5 @@ PySide6>=6.7
 SQLAlchemy>=2.0
 pyserial>=3.5
 PyMySQL>=1.1
+cryptography>=42      # exigido pelo PyMySQL para a senha padrão do MySQL 8 (caching_sha2)
+python-barcode>=0.15   # código de barras Code 128 da comanda

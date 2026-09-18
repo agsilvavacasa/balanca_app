@@ -61,7 +61,7 @@ class KioskWindow(QMainWindow):
         self.armed = True
         self.link_ok = False
         self.scale: Optional[ScaleController] = None
-        self._sim_panel = None
+        self._sim_window = None
         self._countdown = 0
         self._pending_tare = 0
 
@@ -128,10 +128,10 @@ class KioskWindow(QMainWindow):
         row.addWidget(self.lost_btn, 3)
         row.addStretch(1)
         lay.addLayout(row)
+        lay.addWidget(self._label("Já tem comanda? Aproxime-a do leitor", "stepHint"))
         self.scan_input = QLineEdit()
         self.scan_input.setObjectName("commandInput")
         self.scan_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.scan_input.setPlaceholderText("Aproxime a comanda do leitor")
         self.scan_input.returnPressed.connect(self._scan)
         holder = QHBoxLayout()
         holder.addStretch(1)
@@ -252,8 +252,6 @@ class KioskWindow(QMainWindow):
         row.addWidget(self.skip_plate_btn)
         row.addWidget(self.register_btn, 1)
         lay.addLayout(row)
-        self.sim_holder = QVBoxLayout()
-        lay.addLayout(self.sim_holder)
         lay.addStretch(1)
         return page
 
@@ -291,11 +289,11 @@ class KioskWindow(QMainWindow):
         row = QHBoxLayout()
         back = _button("← Adicionar mais", "kiosk")
         back.clicked.connect(lambda: self._go(EXTRAS))
-        done = _button("CONCLUIR", "kioskPrimary")
-        done.clicked.connect(lambda: self._go(ENDDONE))
+        self.review_done = _button("CONCLUIR", "kioskPrimary")
+        self.review_done.clicked.connect(lambda: self._go(ENDDONE))
         row.addWidget(back)
         row.addStretch(1)
-        row.addWidget(done)
+        row.addWidget(self.review_done)
         lay.addLayout(row)
         return page
 
@@ -369,8 +367,13 @@ class KioskWindow(QMainWindow):
         self.scale.link_changed.connect(self._on_link)
         self.scale.command_result.connect(self._on_scale_command)
         if self.scale.simulator is not None:
-            self._sim_panel = build_simulator_panel(self.scale.simulator, lambda text: None)
-            self.sim_holder.addWidget(self._sim_panel)
+            # só existe em modo de teste: janela à parte, para não ocupar a tela do cliente
+            self._sim_window = QWidget(self, Qt.WindowType.Tool)
+            self._sim_window.setWindowTitle("Simulador da balança")
+            box = QVBoxLayout(self._sim_window)
+            box.addWidget(build_simulator_panel(self.scale.simulator, lambda text: None))
+            self._sim_window.resize(560, 300)
+            self._sim_window.show()
         self.scale.start()
 
     def _on_link(self, ok: bool, detail: str) -> None:

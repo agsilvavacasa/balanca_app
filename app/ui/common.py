@@ -53,6 +53,11 @@ class ItemsTable(QTableWidget):
         head.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for i in (1, 2, 3):
             head.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        for index in range(len(self.HEADERS)):
+            header_item = self.horizontalHeaderItem(index)
+            right = index > 0
+            header_item.setTextAlignment((Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
+                                         | Qt.AlignmentFlag.AlignVCenter)
         if font_px:
             self.setStyleSheet(f"QTableWidget {{ font-size: {font_px}px; }}")
 
