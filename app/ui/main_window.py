@@ -4,7 +4,7 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QGroupBox, QHBoxLayout, QHeaderView,
-                               QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSpinBox,
+                               QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..bootstrap import Services
@@ -18,6 +18,7 @@ from ..printing.ticket import KIND_COMMAND, build_ticket
 from ..services.errors import BusinessError, DuplicateOpenCommand, PriceNotFound
 from ..services.command_service import WEIGHED_PRODUCT_CODE
 from ..services.weighing_service import MESSAGES, StabilityTracker, WeighingState
+from .catalog_dialog import CatalogDialog
 from .common import NOT_OPEN_MESSAGE, STATUS_VIEW
 from .dialogs import (CancelConsumptionDialog, ChangePriceDialog, ConfirmConsumptionDialog,
                       CpfDialog, LoginDialog, ScaleSettingsDialog, _button)
@@ -109,12 +110,14 @@ class MainWindow(QMainWindow):
         self.operator_label.setObjectName("muted")
         self.switch_btn = _button("Trocar operador")
         self.price_btn = _button("Preço/kg")
+        self.catalog_btn = _button("Produtos")
         self.settings_btn = _button("Balança")
         self.switch_btn.clicked.connect(self._switch_operator)
         self.price_btn.clicked.connect(self._change_price)
+        self.catalog_btn.clicked.connect(self._open_catalog)
         self.settings_btn.clicked.connect(self._open_scale_settings)
         for w in (self.scale_chip, self.operator_label, self.switch_btn, self.price_btn,
-                  self.settings_btn):
+                  self.catalog_btn, self.settings_btn):
             lay.addWidget(w)
         self._update_operator_label()
         return header
@@ -191,19 +194,29 @@ class MainWindow(QMainWindow):
         products = Card("Produtos avulsos")
         prow = QHBoxLayout()
         prow.setSpacing(10)
+        self.products_row = prow
         self.product_buttons: list[QPushButton] = []
+        self._fill_products()
+        products.body.addLayout(prow)
+        col.addWidget(products)
+        return col
+
+    def _fill_products(self) -> None:
+        """(Re)monta os botões de produtos avulsos a partir do cadastro atual."""
+        while self.products_row.count():
+            item = self.products_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.product_buttons = []
         try:
             for product in self.services.commands.unit_products():
                 btn = _button(f"{product.description}\n{format_brl(product.price)}", "product")
                 btn.clicked.connect(lambda _=False, code=product.code: self._add_unit(code))
                 self.product_buttons.append(btn)
-                prow.addWidget(btn)
+                self.products_row.addWidget(btn)
         except BusinessError as exc:
-            prow.addWidget(QLabel(str(exc)))
-        prow.addStretch(1)
-        products.body.addLayout(prow)
-        col.addWidget(products)
-        return col
+            self.products_row.addWidget(QLabel(str(exc)))
+        self.products_row.addStretch(1)
 
     def _build_right(self) -> QVBoxLayout:
         col = QVBoxLayout()
@@ -467,6 +480,11 @@ class MainWindow(QMainWindow):
         self._after_command_loaded()
 
     def _after_command_loaded(self) -> None:
+        try:
+            self._load_price()        # outro terminal/gerente pode ter alterado o preço/kg
+            self._fill_products()
+        except BusinessError:
+            pass
         self.tare_sent_g = None
         self.tare_label.setText("Tara: pela tecla da balança")
         self.armed = True
@@ -484,7 +502,9 @@ class MainWindow(QMainWindow):
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         try:
-            self.command = self.services.commands.start_command(self.operator.id, dialog.digits or None)
+            self.command = self.services.commands.start_command(
+                self.operator.id, dialog.digits or None,
+                allow_duplicate_cpf=not self.settings.kiosk.block_duplicate_cpf)
         except DuplicateOpenCommand as exc:
             self.command = self.services.commands.find(exc.existing_code)
             self._after_command_loaded()
@@ -609,20 +629,37 @@ class MainWindow(QMainWindow):
         dialog = ChangePriceDialog(self.price, self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        admin = self.services.auth.authenticate_admin(dialog.manager_pin)
-        if admin is None:
-            QMessageBox.warning(self, "Não autorizado", "PIN de gerente inválido. O preço não foi alterado.")
-            return
         try:
-            self.services.pricing.set_price(WEIGHED_PRODUCT_CODE, dialog.new_price, admin.id)
+            admin = self.services.auth.authenticate_admin(dialog.manager_pin)
+            if admin is None:
+                QMessageBox.warning(self, "Não autorizado", "PIN de gerente inválido. O preço não foi alterado.")
+                return
+            self.services.catalog.set_price(dialog.manager_pin, WEIGHED_PRODUCT_CODE, dialog.new_price)
         except BusinessError as exc:
-            QMessageBox.warning(self, "Preço inválido", str(exc))
+            QMessageBox.warning(self, "Não foi possível alterar", str(exc))
             return
+        self._after_price_changed()
+        self._say(f"Preço/kg alterado para {format_brl(self.price)} (autorizado por {admin.name}).", "info")
+
+    def _after_price_changed(self) -> None:
         self._load_price()
+        self._fill_products()
         if self.settings.scale.send_price_to_scale and self.price is not None:
             self.scale.request_price(self.price)
         self._render_weight()
-        self._say(f"Preço/kg alterado para {format_brl(self.price)} (autorizado por {admin.name}).", "info")
+
+    def _open_catalog(self) -> None:
+        pin, ok = QInputDialog.getText(self, "Produtos e preços", "PIN do gerente:",
+                                       QLineEdit.EchoMode.Password)
+        if not ok:
+            return
+        try:
+            dialog = CatalogDialog(self.services, pin, self)
+        except BusinessError as exc:
+            QMessageBox.warning(self, "Não autorizado", str(exc))
+            return
+        dialog.changed.connect(self._after_price_changed)
+        dialog.exec()
 
     def _switch_operator(self) -> None:
         dialog = LoginDialog(self.services.auth.list_operators(), self.services.auth.authenticate, self)

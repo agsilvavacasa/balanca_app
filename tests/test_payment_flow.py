@@ -228,3 +228,30 @@ def test_selfcheckout_registration_failure_logs_nsu(selfcheckout, env, monkeypat
     assert "Chame um atendente" in selfcheckout.done_msg.text() and "SIM000001" in selfcheckout.done_msg.text()
     log = (home / "pagamentos_pendentes.log").read_text(encoding="utf-8")
     assert "comanda=000154" in log and "SIM000001" in log
+
+
+def _two_open_for_cpf(services):
+    op = services.auth.self_service_operator()
+    codes = []
+    for _ in range(2):
+        c = services.commands.start_command(op.id, CPF, allow_duplicate_cpf=True)
+        services.commands.add_unit_product(c.id, op.id, "002")
+        codes.append(c.code)
+    return codes
+
+
+def test_cashier_warns_when_cpf_has_several_open_commands(cashier, env):
+    _, services, _ = env
+    older, newer = _two_open_for_cpf(services)
+    scan(cashier, CPF)
+    assert cashier.command.code == newer                                   # mais recente
+    assert "mais 1 comanda" in cashier.scan_msg.text() and older in cashier.scan_msg.text()
+
+
+def test_selfcheckout_refuses_to_guess_between_commands(selfcheckout, env):
+    _, services, _ = env
+    _two_open_for_cpf(services)
+    scan(selfcheckout, CPF)
+    assert selfcheckout.stack.currentIndex() == sc.WELCOME
+    assert "mais de uma comanda" in selfcheckout.welcome_msg.text()
+    assert selfcheckout.command is None                                    # nada foi cobrado

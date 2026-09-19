@@ -3,6 +3,7 @@ import pytest
 from app.database.connection import Database
 from app.database.seed import seed_if_empty
 from app.services.auth_service import AuthService
+from app.services.catalog_service import CatalogService
 from app.services.command_service import CommandService
 from app.services.pricing_service import PricingService
 
@@ -19,8 +20,9 @@ def db(tmp_path):
 @pytest.fixture
 def services(db):
     pricing = PricingService(db)
-    return {"db": db, "pricing": pricing, "commands": CommandService(db, pricing),
-            "auth": AuthService(db)}
+    auth = AuthService(db)
+    return {"db": db, "pricing": pricing, "commands": CommandService(db, pricing), "auth": auth,
+            "catalog": CatalogService(db, pricing, auth)}
 
 
 @pytest.fixture

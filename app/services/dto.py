@@ -80,3 +80,16 @@ class CommandSummary:
     closed_at: Optional[datetime]
     customer_cpf: Optional[str]
     item_count: int
+
+
+@dataclass(frozen=True)
+class ProductAdminInfo:
+    """Produto para a tela de cadastro (inclui inativos e o preço vigente)."""
+    id: int
+    code: str
+    description: str
+    type: str
+    unit: str
+    active: bool
+    price: Optional[Decimal]
+    price_since: Optional[datetime]

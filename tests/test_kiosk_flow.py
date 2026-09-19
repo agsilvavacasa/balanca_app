@@ -70,8 +70,9 @@ def test_new_command_with_cpf_prints_ticket(kiosk):
     type_cpf(kiosk, CPF)
     assert kiosk.cpf.display.text() == "529.982.247-25" and kiosk.cpf_ok.isEnabled()
     kiosk.cpf_ok.click()
-    assert kiosk.stack.currentIndex() == kw.NEWDONE
-    assert kiosk.new_code.text() == "000157"
+    assert kiosk.stack.currentIndex() == kw.WEIGH               # vai direto para a pesagem
+    assert kiosk.command.code == "000157"
+    assert "000157 criada" in kiosk.weigh_notice.text() and "Retire" in kiosk.weigh_notice.text()
     assert len(tickets(kiosk)) == 1 and tickets(kiosk)[0].startswith("comanda_000157")
     info = kiosk.services.commands.find("000157")
     assert info.customer_cpf == "52998224725" and info.status == "OPEN"
@@ -90,13 +91,8 @@ def test_full_customer_journey(kiosk):
     kiosk.new_btn.click()
     type_cpf(kiosk, CPF)
     kiosk.cpf_ok.click()
-    code = kiosk.new_code.text()
-    kiosk._finish_session()
-
-    # cliente se serve e volta ao autoatendimento: lê a comanda no leitor
-    kiosk.scan_input.setText(code)
-    kiosk.scan_input.returnPressed.emit()
-    assert kiosk.stack.currentIndex() == kw.WEIGH
+    code = kiosk.command.code
+    assert kiosk.stack.currentIndex() == kw.WEIGH               # sem precisar ler a comanda de novo
 
     sim = kiosk.scale.simulator
     sim.place_weight(860)                                  # prato + comida; tara automática de 360 g
@@ -213,3 +209,77 @@ def test_idle_returns_to_welcome_keeping_command_open(kiosk):
     kiosk.scan_input.returnPressed.emit()
     assert wait_until(lambda: kiosk.stack.currentIndex() == kw.WELCOME, 3000)
     assert kiosk.services.commands.find("000155").status == "OPEN"
+
+
+def test_print_failure_still_goes_to_weighing_with_number(kiosk, monkeypatch):
+    from app.printing.printer import PrintResult
+    monkeypatch.setattr(kiosk, "_print", lambda info: PrintResult(False, "", "sem papel"))
+    kiosk.new_btn.click()
+    type_cpf(kiosk, CPF)
+    kiosk.cpf_ok.click()
+    assert kiosk.stack.currentIndex() == kw.WEIGH
+    assert "Não foi possível imprimir" in kiosk.weigh_notice.text() and kiosk.command.code in kiosk.weigh_notice.text()
+
+
+def test_returning_to_weigh_clears_notice(kiosk):
+    kiosk.new_btn.click()
+    type_cpf(kiosk, CPF)
+    kiosk.cpf_ok.click()
+    assert kiosk.weigh_notice.text()
+    kiosk.scale.simulator.place_weight(860)
+    assert wait_until(lambda: kiosk.state is WeighingState.STABLE)
+    kiosk.register_btn.click()
+    assert kiosk.stack.currentIndex() == kw.EXTRAS
+    kiosk._enter_weigh()                                   # "Pesar outro prato"
+    assert kiosk.weigh_notice.text() == ""
+
+
+def test_option_off_creates_second_command_for_same_cpf(kiosk):
+    kiosk.settings.kiosk.block_duplicate_cpf = False
+    first = kiosk.services.commands.start_command(kiosk.op.id, CPF)
+    kiosk.new_btn.click()
+    type_cpf(kiosk, CPF)
+    kiosk.cpf_ok.click()
+    assert kiosk.stack.currentIndex() == kw.WEIGH                          # criou outra, vai à pesagem
+    assert kiosk.command.code != first.code
+    assert len(kiosk.services.commands.open_commands_by_cpf(CPF)) == 2
+    kiosk._finish_session()
+    kiosk.lost_btn.click()                                                 # "perdi": vê as duas
+    type_cpf(kiosk, CPF)
+    kiosk.cpf_ok.click()
+    assert kiosk.stack.currentIndex() == kw.PICK and kiosk.pick_rows.count() == 2
+
+
+def test_price_change_by_manager_reaches_open_kiosk(kiosk):
+    """O gerente muda o preço enquanto o kiosk está aberto: a próxima pesagem já mostra o novo valor."""
+    services = kiosk.services
+    admin = services.auth.authenticate_admin("9999")
+    kiosk.scan_input.setText("000155")
+    kiosk.scan_input.returnPressed.emit()
+    assert kiosk.price == Decimal("79.90")
+    kiosk._finish_session()
+    services.pricing.set_price("001", Decimal("89.90"), admin.id)
+    kiosk.scan_input.setText("000155")
+    kiosk.scan_input.returnPressed.emit()
+    assert kiosk.price == Decimal("89.90") and "89,90" in kiosk.price_label.text()
+    kiosk.scale.simulator.place_weight(860)
+    assert wait_until(lambda: kiosk.state is WeighingState.STABLE)
+    assert kiosk.value_label.text() == "R$ 44,95"           # 0,500 x 89,90: igual ao que será cobrado
+    kiosk.register_btn.click()
+    assert services.commands.find("000155").total == Decimal("44.95")
+
+
+def test_new_product_appears_without_restarting_kiosk(kiosk):
+    from app.database.models import Product, ProductPrice, ProductType
+    from datetime import datetime
+    db = kiosk.services.db
+    assert kiosk.tiles_grid.count() == 3
+    with db.session() as s:
+        p = Product(code="005", description="SUCO", type=ProductType.UNIT, unit="UN")
+        s.add(p)
+        s.flush()
+        s.add(ProductPrice(product_id=p.id, price=Decimal("7.00"), valid_from=datetime.now()))
+    kiosk.scan_input.setText("000155")
+    kiosk.scan_input.returnPressed.emit()
+    assert [p.description for p in kiosk.products][-1] == "SUCO"
+    assert kiosk.tiles_grid.count() == 4

@@ -35,13 +35,15 @@ class CommandService:
         self._pricing = pricing
 
     # ------------------------------------------------------------------ criação
-    def start_command(self, operator_id: int, cpf: Optional[str] = None) -> CommandInfo:
+    def start_command(self, operator_id: int, cpf: Optional[str] = None,
+                      allow_duplicate_cpf: bool = False) -> CommandInfo:
         """Cria uma comanda nova, com código sequencial. O CPF (opcional) permite recuperá-la
-        se o cliente perder a comanda; só pode haver uma comanda em aberto por CPF."""
+        se o cliente perder a comanda. Por padrão só pode haver uma comanda não paga por CPF
+        (`DuplicateOpenCommand`); `allow_duplicate_cpf=True` desliga essa trava."""
         cpf_digits = only_digits(cpf) if cpf else None
         if cpf_digits is not None and not is_valid_cpf(cpf_digits):
             raise InvalidCpf("CPF inválido. Confira os números digitados.")
-        if cpf_digits:
+        if cpf_digits and not allow_duplicate_cpf:
             existing = self.open_commands_by_cpf(cpf_digits)
             if existing:
                 raise DuplicateOpenCommand(existing[0].code)

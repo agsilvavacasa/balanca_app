@@ -118,3 +118,12 @@ def test_unhandled_error_is_logged_and_reported(qapp, tmp_path, monkeypatch):
     assert shown[1][0] == "critical" and "erros.log" in shown[1][1]
     log = (tmp_path / "erros.log").read_text(encoding="utf-8")
     assert "BusinessError" in log and "RuntimeError: bug" in log
+
+
+def test_block_duplicate_cpf_defaults_on_and_persists(tmp_path, monkeypatch):
+    monkeypatch.setenv("BALANCA_HOME", str(tmp_path))
+    assert AppSettings().kiosk.block_duplicate_cpf is True
+    s = AppSettings()
+    s.kiosk.block_duplicate_cpf = False
+    save_settings(s)
+    assert load_settings().kiosk.block_duplicate_cpf is False

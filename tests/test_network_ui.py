@@ -70,15 +70,12 @@ def test_kiosk_over_network_creates_command_seen_by_server(lan):
     for ch in "52998224725":
         win.cpf.keys[ch].click()
     win.cpf_ok.click()
-    assert win.stack.currentIndex() == kw.NEWDONE
-    code = win.new_code.text()
+    assert win.stack.currentIndex() == kw.WEIGH
+    code = win.command.code
     seen = local.commands.find(code)                        # o servidor (outro PC) enxerga
     assert seen.status == "OPEN" and seen.customer_cpf == "52998224725"
     assert os.listdir(s.printing.pdf_dir)[0].startswith(f"comanda_{code}")   # e a impressão é local
 
-    win._finish_session()
-    win.scan_input.setText(code)
-    win.scan_input.returnPressed.emit()
     win.scale.simulator.place_weight(860)
     assert wait_until(lambda: win.state.value == "STABLE")
     win.register_btn.click()
@@ -102,7 +99,7 @@ def test_two_kiosks_share_one_server(lan):
         for ch in ("52998224725", "11144477735")[i]:
             win.cpf.keys[ch].click()
         win.cpf_ok.click()
-    codes = {w.new_code.text() for w in wins}
+    codes = {w.command.code for w in wins}
     assert len(codes) == 2
     assert {c.name for c in host.active_clients()} == {"autoatendimento@kiosk1", "autoatendimento@kiosk2"}
     for w in wins:

@@ -80,4 +80,5 @@ def build_remote_services(host: str, port: int, access_key: str,
     if check:
         client.ping()
     return Services(db=None, auth=RemoteService(client, "auth"),
-                    pricing=RemoteService(client, "pricing"), commands=RemoteService(client, "commands"))
+                    pricing=RemoteService(client, "pricing"), commands=RemoteService(client, "commands"),
+                    catalog=RemoteService(client, "catalog"))

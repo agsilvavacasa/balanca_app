@@ -38,6 +38,7 @@ class KioskSettings:
     auto_tare: bool = True               # aplica a tara padrão do prato ao iniciar o atendimento
     auto_register_after_s: int = 0       # 0 = o cliente confirma o prato com um toque
     require_cpf: bool = True             # CPF obrigatório para abrir comanda
+    block_duplicate_cpf: bool = True     # não cria comanda se o CPF já tem outra aberta/não paga
     done_screen_s: int = 10              # tempo da tela final antes de voltar ao início
     idle_timeout_s: int = 90             # sem toque por este tempo, volta ao início (0 = nunca)
 

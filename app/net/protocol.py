@@ -18,7 +18,8 @@ MAX_BODY = 1_000_000
 
 ALLOWED: dict[str, frozenset[str]] = {
     "auth": frozenset({"list_operators", "authenticate", "authenticate_admin", "self_service_operator"}),
-    "pricing": frozenset({"current_price", "set_price"}),
+    "pricing": frozenset({"current_price"}),
+    "catalog": frozenset({"list_products", "create_product", "rename_product", "set_active", "set_price"}),
     "commands": frozenset({
         "start_command", "find", "get", "open_commands_by_cpf", "list_awaiting_payment", "unit_products",
         "add_weighed_consumption", "add_unit_product", "cancel_consumption", "send_to_payment",
@@ -26,7 +27,8 @@ ALLOWED: dict[str, frozenset[str]] = {
 }
 
 _DTOS = {cls.__name__: cls for cls in (dto.OperatorInfo, dto.ProductInfo, dto.ItemInfo, dto.PaymentInfo,
-                                       dto.CommandInfo, dto.CommandSummary)}
+                                       dto.CommandInfo, dto.CommandSummary,
+                                       dto.ProductAdminInfo)}
 _ERRORS = {cls.__name__: cls for cls in vars(errors).values()
            if isinstance(cls, type) and issubclass(cls, errors.BusinessError)}
 

@@ -249,3 +249,34 @@ def test_migration_adds_cpf_column_to_old_database(tmp_path):
     assert "customer_cpf" in cols
     db.create_all()                   # idempotente
     db.dispose()
+
+
+# ---- opção: permitir mais de uma comanda por CPF -------------------------------------------
+def test_duplicate_cpf_allowed_when_option_is_off(services, selfservice):
+    cmds = services["commands"]
+    first = cmds.start_command(selfservice.id, CPF_A)
+    second = cmds.start_command(selfservice.id, CPF_A, allow_duplicate_cpf=True)
+    assert second.code != first.code and second.customer_cpf == first.customer_cpf
+    found = cmds.open_commands_by_cpf(CPF_A)
+    assert [c.code for c in found] == [second.code, first.code]           # mais recente primeiro
+    with pytest.raises(DuplicateOpenCommand):                             # padrão continua bloqueando
+        cmds.start_command(selfservice.id, CPF_A)
+
+
+def test_paid_or_cancelled_command_never_blocks_new_one(services, selfservice, operator):
+    cmds = services["commands"]
+    first = cmds.start_command(selfservice.id, CPF_A)
+    cmds.add_unit_product(first.id, selfservice.id, "002")
+    cmds.register_payment(first.id, operator.id, "PIX", Decimal("8.00"))    # paga
+    second = cmds.start_command(selfservice.id, CPF_A)                       # não há mais comanda aberta
+    cmds.cancel_command(second.id, selfservice.id, only_if_empty=True)
+    assert cmds.start_command(selfservice.id, CPF_A).status == "OPEN"
+
+
+def test_awaiting_payment_also_blocks(services, selfservice):
+    cmds = services["commands"]
+    first = cmds.start_command(selfservice.id, CPF_A)
+    cmds.add_unit_product(first.id, selfservice.id, "002")
+    cmds.send_to_payment(first.id)                                           # enviada ao caixa, não paga
+    with pytest.raises(DuplicateOpenCommand):
+        cmds.start_command(selfservice.id, CPF_A)

@@ -5,7 +5,7 @@ from typing import Optional
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow,
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog, QMessageBox, QLabel, QLineEdit, QMainWindow,
                                QStackedWidget, QVBoxLayout, QWidget)
 
 from ..bootstrap import Services
@@ -233,8 +233,13 @@ class SelfCheckoutWindow(QMainWindow):
     def _admin_exit(self) -> None:
         pin, ok = QInputDialog.getText(self, "Sair do autopagamento", "PIN do gerente:",
                                        QLineEdit.EchoMode.Password)
-        if ok and self.services.auth.authenticate_admin(pin):
-            self.close()
+        if not ok:
+            return
+        try:
+            if self.services.auth.authenticate_admin(pin):
+                self.close()
+        except BusinessError as exc:              # PIN travado por tentativas erradas, servidor fora do ar...
+            QMessageBox.warning(self, "Não autorizado", str(exc))
 
     # ================================================================= localizar a comanda
     def _welcome_error(self, text: str) -> None:
@@ -262,6 +267,9 @@ class SelfCheckoutWindow(QMainWindow):
         found = self.services.commands.open_commands_by_cpf(cpf)
         if not found:
             raise BusinessError(f"Nenhuma comanda em aberto para o CPF {format_cpf(cpf)}.")
+        if len(found) > 1:                      # não adivinha qual pagar: cobraria a comanda errada
+            raise BusinessError("Há mais de uma comanda em aberto para este CPF. "
+                                "Leia a comanda impressa no leitor.")
         return self.services.commands.get(found[0].id)
 
     def _cpf_confirm(self) -> None:

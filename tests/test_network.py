@@ -180,3 +180,14 @@ def test_helpers():
     assert len(key) == 8 and not set(key) & set("01OIl")
     assert new_access_key() != new_access_key()
     assert local_ips()
+
+
+def test_allow_duplicate_cpf_flag_travels_over_the_network(server):
+    host, _ = server
+    terminal = remote(host)
+    op = terminal.auth.self_service_operator()
+    first = terminal.commands.start_command(op.id, CPF)
+    with pytest.raises(errors.DuplicateOpenCommand):
+        terminal.commands.start_command(op.id, CPF)
+    second = terminal.commands.start_command(op.id, CPF, allow_duplicate_cpf=True)
+    assert second.code != first.code

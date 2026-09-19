@@ -22,8 +22,10 @@ O terminal **pergunta o IP e o código do servidor** na primeira vez e a partir 
 leitor de código de barras continuam ligados no PC do próprio terminal.
 
 **Fluxo do cliente:**
-1. No autoatendimento o cliente informa o **CPF**, o sistema cria a comanda e **imprime** (código de barras + CPF mascarado).
-2. Ele se serve, volta ao autoatendimento, **lê a comanda**, pesa o prato (a balança dá o peso líquido) e marca bebidas/sobremesas.
+1. No autoatendimento o cliente informa o **CPF**; o sistema cria a comanda, **imprime** (código de barras + CPF mascarado) e já
+   abre a **tela de pesagem**, sem precisar ler a comanda de novo.
+2. Ele pesa o prato (a balança dá o peso líquido) e marca bebidas/sobremesas. Se voltar depois (outro prato, sobremesa), basta
+   **ler a comanda** no autoatendimento.
 3. Na saída, **lê a comanda no caixa** (ou informa o CPF, se a perdeu), confere e **paga**: manual (operador) ou autopagamento (TEF).
 
 Ciclo da comanda: `OPEN` → `AWAITING_PAYMENT` (enviada ao caixa) → `PAID`; também existe `CANCELLED`.
@@ -34,7 +36,70 @@ Ciclo da comanda: `OPEN` → `AWAITING_PAYMENT` (enviada ao caixa) → `PAID`; t
 | `servidor` | PC principal | Guarda o banco, aceita os terminais, mostra **IP e código**, lista quem está conectado e abre Caixa/Operador. |
 | `autoatendimento` | PC da balança | CPF, comanda impressa, pesagem, bebidas/sobremesas, "perdi minha comanda". Tela cheia e botões grandes. |
 | `caixa` | PC de saída | `checkout.mode = manual`: operador registra o pagamento (dinheiro com troco, PIX, crédito, débito, parcial). `auto`: o cliente paga sozinho no TEF. |
-| `operador` | qualquer | Atendimento assistido: nova comanda, pesagem, lançamentos, cancelamentos, enviar ao caixa, reabrir, alterar preço/kg (PIN de gerente). |
+| `operador` | qualquer | Atendimento assistido: nova comanda, pesagem, lançamentos, cancelamentos, enviar ao caixa, reabrir, **produtos e preços** (PIN de gerente). |
+
+## Como executar
+
+Serve para testar tudo num único computador (balança simulada, impressão em PDF) e é o mesmo comando usado em produção.
+Use **Python 3.13** (64 bits); o 3.14 não foi testado com o PySide6.
+
+### Windows 10/11
+1. Instale o Python 3.13 em python.org e marque **"Add python.exe to PATH"** e **"py launcher"**.
+2. Na pasta `balanca_app`, dê dois cliques no atalho do módulo que quer abrir:
+
+| Atalho | Módulo |
+|---|---|
+| `iniciar_servidor.bat` | servidor (abra este primeiro) |
+| `iniciar_autoatendimento.bat` | autoatendimento (cliente) |
+| `iniciar_caixa.bat` | caixa / autopagamento |
+| `iniciar_operador.bat` | operador |
+
+Na primeira execução o atalho cria o ambiente virtual e instala as dependências (precisa de internet, leva alguns minutos).
+Pelo PowerShell, dá para passar opções: `.\run_windows.bat --modo autoatendimento --janela`.
+
+### macOS (desenvolvimento e testes)
+1. Instale o Python 3.13: `brew install python@3.13`.
+2. Na pasta `balanca_app`, rode (na primeira vez ele cria o ambiente e instala tudo):
+```bash
+./run.sh --modo servidor
+```
+3. Em **outro terminal**, abra os demais módulos, por exemplo:
+```bash
+./run.sh --modo autoatendimento --janela
+```
+Se o `run.sh` criar o ambiente com um Python diferente do 3.13 e a instalação falhar, recrie com o 3.13:
+```bash
+rm -rf .venv && /opt/homebrew/bin/python3.13 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+```
+
+### Opções da linha de comando
+| Opção | Efeito |
+|---|---|
+| `--modo servidor\|autoatendimento\|caixa\|operador` | qual módulo abrir (sem ela, o programa pergunta) |
+| `--checkout manual\|auto` | caixa com operador ou autopagamento pelo cliente |
+| `--abrir caixa\|operador` | no modo servidor, já abre esta tela junto |
+| `--janela` | não abre em tela cheia (útil para testar) |
+
+### Testar num computador só (passo a passo)
+1. Abra o **servidor** e deixe a janela aberta. Ela mostra a **porta** e o **código de acesso**.
+2. Abra o **autoatendimento** (`--janela` no Mac). Na pergunta "Onde estão os dados?", deixe **Em outro PC** e informe
+   IP `127.0.0.1`, a porta e o código do servidor; clique em **Testar conexão** e **Salvar**. A escolha fica gravada.
+3. Informe um CPF válido (ex.: `529.982.247-25`): a comanda é criada, o PDF da comanda é gerado em
+   `~/.balanca_restaurante/tickets/` e a pesagem abre direto. Use a janela **Simulador da balança** para pôr peso no prato.
+4. Para pagar, clique em **Abrir caixa** na janela do servidor (login: Operador 1 / PIN 1111) e leia o código da comanda.
+
+Sem servidor, escolha **Neste PC** na pergunta acima: tudo roda em um só programa, sem rede.
+
+### Rodar os testes
+```bash
+.venv/bin/python -m pytest          # Windows: .venv\Scripts\python -m pytest
+```
+
+### Se algo não abrir
+- **Servidor indisponível:** o servidor precisa estar aberto antes; confira IP, porta e código.
+- **"NÃO INICIOU" na janela do servidor:** a porta 8765 já está em uso (outro servidor aberto). Feche-o ou mude `server.port` no `config.json`.
+- **Erro inesperado:** os detalhes ficam em `erros.log`, na pasta de dados (`~/.balanca_restaurante/` no Mac,
+  `C:\Users\<você>\.balanca_restaurante\` no Windows).
 
 ## Instalar em dois (ou mais) PCs
 
@@ -60,13 +125,21 @@ Sem configurar nada, o programa roda **num único PC** (modo "neste PC", com bal
 Operadores de demonstração: **Operador 1 / 1111** e **Gerente / 9999**. Comandas de teste: `000154` (aberta, R$ 20,00),
 `000155` (vazia), `000156` (já paga). Sair do autoatendimento/autopagamento em tela cheia: **Ctrl+Shift+Q** + PIN de gerente.
 
-**macOS/Linux (só desenvolvimento):** `./run.sh --modo servidor` e, em outro terminal, `./run.sh --modo autoatendimento --janela`.
-
 ### Segurança da rede — leia
 - O servidor só atende quem apresenta o **código de acesso**. Trate-o como uma senha (dá para gerar outro na janela do servidor).
 - A comunicação é **HTTP sem criptografia**: use só em **rede local confiável**; **nunca exponha a porta à internet**.
   PINs, CPFs e valores trafegam em claro pela rede do restaurante. Se houver Wi-Fi de clientes, mantenha os terminais em outra rede.
 - Nenhum SQL trafega pela rede: o terminal só chama as operações permitidas (lista fixa em `app/net/protocol.py`).
+
+### Produtos e preços (gerente)
+No módulo **operador**, o botão **Produtos** (PIN de gerente) abre o cadastro: **novo produto** (por unidade, código gerado
+automaticamente), **alterar preço**, **renomear** e **desativar/ativar**. O botão **Preço/kg** continua como atalho para a comida por quilo.
+- Preço novo vale a partir de agora; o histórico é guardado e comandas já lançadas **não mudam**.
+- Desativar tira o produto do autoatendimento sem apagar as vendas antigas. A comida por quilo não pode ser desativada.
+- Os terminais pegam produtos e preços novos na próxima pesagem, sem reiniciar.
+- O **PIN de gerente é conferido no servidor** a cada alteração (não só na tela), e 5 erros seguidos travam a checagem por 30 s.
+  Outras ações (cancelar lançamento, reabrir comanda, receber pagamento) ainda podem ser feitas por qualquer operador.
+- PINs de demonstração: **Operador 1 = 1111**, **Gerente = 9999**. Ainda não há tela para trocá-los: troque antes de usar de verdade.
 
 ### Banco de dados
 Fica **só no servidor**, em SQLite (`C:\Users\<você>\.balanca_restaurante\balanca.db`): não precisa instalar nada. Faça **backup**
@@ -81,6 +154,7 @@ copiando esse arquivo com o servidor fechado. Se um dia precisar de MySQL, ele �
 | `server.port` / `server.access_key` | 8765 / gerado | porta e código do servidor |
 | `scale.mode` | `simulated` | `serial` para a balança real; `port`/`baudrate` iguais ao **C15** da balança |
 | `kiosk.require_cpf` | `true` | CPF obrigatório para abrir comanda |
+| `kiosk.block_duplicate_cpf` | `true` | não cria comanda se o CPF já tem outra **em aberto sem pagar** (em atendimento ou aguardando pagamento); `false` permite várias |
 | `kiosk.auto_tare` | `true` | envia a tara padrão do prato (`scale.default_tare_g`) ao iniciar a pesagem |
 | `kiosk.auto_register_after_s` | `0` | `0` = cliente toca em REGISTRAR PRATO; `N` = registra sozinho após N s de peso estável |
 | `kiosk.idle_timeout_s` | `90` | sem toque, volta ao início (a comanda continua aberta) |
@@ -125,7 +199,7 @@ tests/                          protocolo, regras, CPF/pagamento, rede, impress�
 ```bash
 .venv/bin/python -m pytest        # Windows: .venv\Scripts\python -m pytest
 ```
-135 testes, sem hardware e em qualquer sistema. Cobrem: exemplos literais do manual da Toledo, regras de negócio, CPF, pagamentos
+169 testes, sem hardware e em qualquer sistema. Cobrem: exemplos literais do manual da Toledo, regras de negócio, CPF, pagamentos
 (troco, parcial, misto, recusa), migração de banco antigo, **servidor e terminais por HTTP (inclusive dois kiosks + caixa ao mesmo
 tempo, código errado, servidor fora do ar)**, impressão em PDF e o fluxo completo das telas.
 
@@ -141,7 +215,7 @@ tempo, código errado, servidor fora do ar)**, impressão em PDF e o fluxo compl
 
 ## Decisões de projeto
 - **Dinheiro e peso em `Decimal`**, arredondamento `ROUND_HALF_UP`; o total é sempre recalculado no servidor.
-- **Uma comanda em aberto por CPF**; código sequencial gerado com nova tentativa em caso de colisão entre terminais.
+- **Uma comanda não paga por CPF** (opção `kiosk.block_duplicate_cpf`, ligada por padrão): o kiosk oferece continuar a existente. Desligada, o caixa avisa quando o CPF tem várias comandas e o autopagamento pede a leitura da comanda impressa em vez de adivinhar. Código sequencial gerado com nova tentativa em caso de colisão entre terminais.
 - **Bloqueio por linha** (`SELECT ... FOR UPDATE`) em lançamentos e pagamentos, para dois terminais não mexerem na mesma comanda ao mesmo tempo.
 - O primeiro pagamento trava a comanda (`AWAITING_PAYMENT`); só reabre se não houver pagamento.
 - Lançamentos do cliente são assinados por um operador técnico, inativo, "Autoatendimento".

@@ -259,7 +259,9 @@ class CashierWindow(QMainWindow):
                 found = self.services.commands.open_commands_by_cpf(digits)
                 if not found:
                     raise BusinessError(f"Nenhuma comanda em aberto para o CPF {format_cpf(digits)}.")
-                note = f" ({len(found)} comandas abertas para este CPF; mostrando a mais recente)" if len(found) > 1 else ""
+                others = ", ".join(c.code for c in found[1:])
+                note = (f" Atenção: este CPF tem mais {len(found) - 1} comanda(s) em aberto ({others}); "
+                        "mostrando a mais recente." if len(found) > 1 else "")
                 self._load(self.services.commands.get(found[0].id), note)
             else:
                 self._load(self.services.commands.find(raw))

@@ -5,7 +5,7 @@ from typing import Optional
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QMessageBox, QLabel,
                                QLineEdit, QMainWindow, QStackedWidget, QVBoxLayout, QWidget)
 
 from ..bootstrap import Services
@@ -26,7 +26,7 @@ from .theme import repolish
 from .widgets import Chip, set_value_tone
 from .workers import ScaleController
 
-(WELCOME, CPF, NEWDONE, PICK, WEIGH, EXTRAS, REVIEW, ENDDONE) = range(8)
+(WELCOME, CPF, PICK, WEIGH, EXTRAS, REVIEW, ENDDONE) = range(7)
 
 # mensagens para o cliente (linguagem simples)
 WEIGH_TEXT = {
@@ -75,7 +75,7 @@ class KioskWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.stack)
         self.setCentralWidget(root)
-        for build in (self._build_welcome, self._build_cpf, self._build_newdone, self._build_pick,
+        for build in (self._build_welcome, self._build_cpf, self._build_pick,
                       self._build_weigh, self._build_extras, self._build_review, self._build_enddone):
             self.stack.addWidget(build())
 
@@ -175,26 +175,6 @@ class KioskWindow(QMainWindow):
         lay.addLayout(row)
         return page
 
-    def _build_newdone(self) -> QWidget:
-        page, lay = self._page()
-        lay.addStretch(1)
-        lay.addWidget(self._label("Comanda criada!", "hero"))
-        self.new_code = self._label("", "bigCode")
-        lay.addWidget(self.new_code)
-        lay.addWidget(self._label("Retire sua comanda impressa e guarde-a. Agora é só se servir!", "heroSub"))
-        self.new_print_msg = self._label("", "bigMessage")
-        lay.addWidget(self.new_print_msg)
-        lay.addSpacing(10)
-        ok = _button("OK", "kioskPrimary")
-        ok.clicked.connect(self._finish_session)
-        holder = QHBoxLayout()
-        holder.addStretch(1)
-        holder.addWidget(ok, 2)
-        holder.addStretch(1)
-        lay.addLayout(holder)
-        lay.addStretch(2)
-        return page
-
     def _build_pick(self) -> QWidget:
         page, lay = self._page()
         lay.addWidget(self._label("Encontramos sua comanda", "stepTitle"))
@@ -220,6 +200,8 @@ class KioskWindow(QMainWindow):
         top.addWidget(exit_btn)
         lay.addLayout(top)
         lay.addWidget(self._label("1 · Pese seu prato", "stepTitle"))
+        self.weigh_notice = self._label("", "stepHint")
+        lay.addWidget(self.weigh_notice)
         self.weight_chip = Chip("PRATO VAZIO", "muted")
         chip_row = QHBoxLayout()
         chip_row.addStretch(1)
@@ -266,7 +248,7 @@ class KioskWindow(QMainWindow):
         lay.addStretch(1)
         row = QHBoxLayout()
         back = _button("← Pesar outro prato", "kiosk")
-        back.clicked.connect(self._enter_weigh)
+        back.clicked.connect(lambda: self._enter_weigh())
         self.extras_ok = _button("CONTINUAR", "kioskPrimary")
         self.extras_ok.clicked.connect(self._commit_extras)
         row.addWidget(back)
@@ -326,11 +308,16 @@ class KioskWindow(QMainWindow):
         except PriceNotFound as exc:
             self.price = None
             self.welcome_msg.setText(str(exc))
+        except BusinessError:                     # sem rede: mantém o último preço conhecido
+            pass
         try:
-            self.products = self.services.commands.unit_products()
+            products = self.services.commands.unit_products()
         except BusinessError:
-            self.products = []
-        self._build_tiles()
+            return
+        if not hasattr(self, "tiles") or [(p.code, p.price) for p in products] != [
+                (p.code, p.price) for p in self.products]:
+            self.products = products
+            self._build_tiles()
 
     def _build_tiles(self) -> None:
         while self.tiles_grid.count():
@@ -425,8 +412,6 @@ class KioskWindow(QMainWindow):
             self.end_code.setText(self.command.code if self.command else "")
             self.end_total.setText(format_brl(self.command.total) if self.command else "")
             self.done_timer.start(self.settings.kiosk.done_screen_s * 1000)
-        elif page == NEWDONE:
-            self.done_timer.start(self.settings.kiosk.done_screen_s * 1000)
 
     def _finish_session(self) -> None:
         self.command = None
@@ -451,8 +436,13 @@ class KioskWindow(QMainWindow):
     def _admin_exit(self) -> None:
         pin, ok = QInputDialog.getText(self, "Sair do autoatendimento", "PIN do gerente:",
                                        QLineEdit.EchoMode.Password)
-        if ok and self.services.auth.authenticate_admin(pin):
-            self.close()
+        if not ok:
+            return
+        try:
+            if self.services.auth.authenticate_admin(pin):
+                self.close()
+        except BusinessError as exc:              # PIN travado por tentativas erradas, servidor fora do ar...
+            QMessageBox.warning(self, "Não autorizado", str(exc))
 
     # ================================================================= abrir / recuperar comanda
     def _open_cpf(self, purpose: str) -> None:
@@ -481,7 +471,8 @@ class KioskWindow(QMainWindow):
 
     def _create_command(self, cpf: Optional[str]) -> None:
         try:
-            info = self.services.commands.start_command(self.op.id, cpf)
+            info = self.services.commands.start_command(
+                self.op.id, cpf, allow_duplicate_cpf=not self.settings.kiosk.block_duplicate_cpf)
         except DuplicateOpenCommand as exc:
             self._lookup_cpf(cpf, note=f"{exc} Você pode continuar com ela.")
             return
@@ -492,14 +483,13 @@ class KioskWindow(QMainWindow):
             self.cpf_msg.setText(str(exc))
             return
         self.command = info
-        self.new_code.setText(info.code)
-        self.new_print_msg.setText("")
+        notice = f"Comanda {info.code} criada."
         if self.settings.printing.print_on_start:
-            result = self._print(info)
-            if not result.ok:
-                self.new_print_msg.setText(
-                    f"Não foi possível imprimir. Anote o número {info.code} ou informe seu CPF no caixa.")
-        self._go(NEWDONE)
+            if self._print(info).ok:
+                notice += " Retire a comanda impressa e guarde-a."
+            else:
+                notice += f" Não foi possível imprimir: anote o número {info.code} ou informe seu CPF no caixa."
+        self._enter_weigh(notice)
 
     def _lookup_cpf(self, cpf: str, note: str = "", error=None) -> None:
         error = error or self.cpf_msg.setText
@@ -585,7 +575,9 @@ class KioskWindow(QMainWindow):
         self._enter_weigh()
 
     # ================================================================= pesagem
-    def _enter_weigh(self) -> None:
+    def _enter_weigh(self, notice: str = "") -> None:
+        self._load_catalog()      # preço e produtos podem ter mudado desde que o kiosk abriu
+        self.weigh_notice.setText(notice)
         self.armed = True
         self.tare_sent_g = None
         self._auto_tare()
